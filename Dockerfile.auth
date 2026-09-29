@@ -1,0 +1,21 @@
+# Build stage
+FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
+WORKDIR /src
+
+COPY ["SEEDONE.AUTH/SEEDONE.AUTH.csproj", "SEEDONE.AUTH/"]
+COPY ["SEEDONE.SERVICE/SEEDONE.Web.Service.csproj", "SEEDONE.SERVICE/"]
+COPY ["SEEDONE.REPO/SEEDONE.Web.Repo.csproj", "SEEDONE.REPO/"]
+RUN dotnet restore "SEEDONE.AUTH/SEEDONE.AUTH.csproj"
+
+COPY . .
+RUN dotnet publish "SEEDONE.AUTH/SEEDONE.AUTH.csproj" -c Release -o /app/publish --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS final
+WORKDIR /app
+EXPOSE 80
+
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+COPY --from=build /app/publish .
+
+USER appuser
+ENTRYPOINT ["dotnet", "SEEDONE.AUTH.dll"]

@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.AspNetCore.Mvc;
@@ -26,6 +26,9 @@ using Newtonsoft.Json;
 using SEEDONE.SERVICE.DtoEdit;
 using System.Text;
 using SEEDONE.SERVICE.Exceptions;
+using SEEDONE.SERVICE.Config;
+using SEEDONE.SERVICE.Interfaces.Service;
+using SEEDONE.SERVICE.Service;
 
 namespace SEEDONE.API
 {
@@ -38,10 +41,8 @@ namespace SEEDONE.API
 
         public IConfiguration Configuration { get; }
 
-        // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-
             services.AddControllers(options =>
             {
                 options.Filters.Add<CustomExceptionFilter>();
@@ -53,34 +54,20 @@ namespace SEEDONE.API
 
             services.AddHttpContextAccessor();
 
-            services.AddScoped<IDossierService, DossierService>();
-            services.AddScoped<IDossierRepo, DossierRepo>();
+            // Storage configuration
+            services.Configure<StorageOptions>(Configuration.GetSection(StorageOptions.SectionName));
 
-            services.AddScoped<ITaiLieuGocService, TaiLieuGocService>();
-            services.AddScoped<ITaiLieuGocRepo, TaiLieuGocRepo>();
+            var storageProvider = Configuration.GetValue<string>("Storage:Provider") ?? "local";
+            if (storageProvider.Equals("s3", StringComparison.OrdinalIgnoreCase))
+                services.AddScoped<IStorageService, S3StorageService>();
+            else
+                services.AddScoped<IStorageService, LocalStorageService>();
 
-            services.AddScoped<ICustomerService, CustomerService>();
-            services.AddScoped<ICustomerRepo, CustomerRepo>();
-
-            services.AddScoped<IManufacturerService, ManufacturerService>();
-            services.AddScoped<IManufacturerRepo, ManufacturerRepo>();
-
-            services.AddScoped<ICheckerService, CheckerService>();
-            services.AddScoped<ICheckerRepo, CheckerRepo>();
-
-            services.AddScoped<IBookmarkTypeService, BookmarkTypeService>();
-            services.AddScoped<IBookmarkTypeRepo, BookmarkTypeRepo>();
-
-            services.AddScoped<ITimeSheetService, TimeSheetService>();
-            services.AddScoped<ITimeSheetRepo, TimeSheetRepo>(); 
-            services.AddScoped<ITypeService, TypeService>();
             services.AddScoped<ISerializerService, SerializerService>();
-
             services.AddScoped<IContextService, WebContextService>();
 
-            var jwtTokenConfig =
-                JsonConvert.DeserializeObject<JwtTokenConfig>(Configuration.GetConnectionString("JwtTokenConfig") ?? string.Empty)
-                ?? throw new InvalidOperationException("JwtTokenConfig chưa được cấu hình đúng.");
+            var jwtTokenConfig = Configuration.GetSection("JwtConfig").Get<JwtTokenConfig>()
+                ?? throw new InvalidOperationException("JwtConfig chưa được cấu hình.");
 
             var signingKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(jwtTokenConfig.SecretKey));
 
@@ -110,9 +97,22 @@ namespace SEEDONE.API
                     .RequireAuthenticatedUser()
                     .Build();
             });
+
+            var allowedOrigins = Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() 
+                ?? Array.Empty<string>();
+
+            services.AddCors(options =>
+            {
+                options.AddDefaultPolicy(policy =>
+                {
+                    if (allowedOrigins.Length > 0)
+                        policy.WithOrigins(allowedOrigins).AllowAnyMethod().AllowAnyHeader();
+                    else
+                        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+                });
+            });
         }
 
-        // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
             if (env.IsDevelopment())
@@ -122,18 +122,20 @@ namespace SEEDONE.API
                 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "SEEDONE.API v1"));
             }
             app.UseHttpsRedirection();
-            // global cors policy
-            app.UseCors(x => x
-                .AllowAnyOrigin()
-                .AllowAnyMethod()
-                .AllowAnyHeader());
+            
+            app.UseCors();
+            
             app.UseStaticFiles();
+            app.UseStaticFiles(new StaticFileOptions {
+                FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+                    Configuration.GetValue<string>("Storage:LocalBasePath") ?? "/app/uploads"),
+                RequestPath = "/uploads"
+            });
 
             app.UseRouting();
             app.UseAuthentication();
             app.UseAuthorization();
 
-            // Sử dụng authen context
             app.UseSetAuthContextHandler();
 
             app.UseEndpoints(endpoints =>

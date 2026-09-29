@@ -1,4 +1,4 @@
-﻿using SEEDONE.SERVICE.Constants;
+using SEEDONE.SERVICE.Constants;
 using SEEDONE.SERVICE.Contexts;
 using SEEDONE.SERVICE.Model;
 using SEEDONE.SERVICE.Properties;
@@ -72,7 +72,7 @@ namespace SEEDONE.SERVICE.Middlewares
             else
             {
                 // Đăng nhập thất bại
-                context.Response.StatusCode = 200;
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 context.Response.ContentType = "application/json";
                 var result = new DAResult(401, "Không thể truy cập", data, null);
                 var jsonResult = JsonConvert.SerializeObject(result);
@@ -133,16 +133,10 @@ namespace SEEDONE.SERVICE.Middlewares
         /// </summary>
         /// <param name="path"></param>
         /// <returns></returns>
-        private bool NoRequestAuthentication(string path)
+        private bool NoRequestAuthentication(PathString path)
         {
-            var lstPath = new List<string> {
-                "/Checkers/login",
-                "/Checkers/test",
-            };
-            if (lstPath.Any(x => path.Contains(x)))
-            {
-                return true;
-            }
+            // Anonymous endpoints are marked with [AllowAnonymous] attribute
+            // and handled by the JWT middleware — no manual bypass needed here
             return false;
         }
     }
